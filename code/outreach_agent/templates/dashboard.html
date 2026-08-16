@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Outreach Flow</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='dashboard.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">OA</div>
+      <div><strong>Outreach Flow</strong><span>Human-controlled agent operations</span></div>
+    </div>
+    <div class="runtime">
+      <span class="status-dot"></span>
+      Event-driven · idle token use: 0
+      <span class="provider">{{ settings.ai_provider }}</span>
+    </div>
+  </header>
+
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <div><span class="eyebrow">INBOX</span><h2>Conversations</h2></div>
+        <button id="demo-button" class="icon-button" aria-label="Run zero-token example" title="Run zero-token example">+</button>
+      </div>
+      <p class="sidebar-copy">Each message creates an inspectable workflow run.</p>
+      <nav class="conversation-list" aria-label="Conversations">
+        {% for item in conversations %}
+          <a href="/?conversation={{ item.id }}" class="conversation-item {% if selected and selected.conversation.id == item.id %}active{% endif %}">
+            <span class="avatar">{{ item.subject[:1] | upper }}</span>
+            <span class="conversation-text">
+              <strong>{{ item.subject }}</strong>
+              <small>{{ item.stage.value | replace('_', ' ') }}</small>
+            </span>
+            <span class="chevron">›</span>
+          </a>
+        {% else %}
+          <div class="empty-side">No conversations yet. Run the example to create one.</div>
+        {% endfor %}
+      </nav>
+      <div class="sidebar-footer">
+        <button id="demo-button-secondary" class="demo-button">▶ Run zero-token example</button>
+        <a href="/docs">Open API documentation ↗</a>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      {% if selected %}
+        <section class="workspace-title">
+          <div>
+            <span class="eyebrow">WORKFLOW RUN</span>
+            <h1>{{ selected.conversation.subject }}</h1>
+            <p>{{ selected.contact.name or selected.contact.email }} · {{ selected.contact.email }}</p>
+          </div>
+          <div class="run-meta">
+            <span class="stage">{{ selected.conversation.stage.value | replace('_', ' ') }}</span>
+            <code>{{ selected.conversation.id|string|truncate(18, True, '…') }}</code>
+          </div>
+        </section>
+
+        <section class="flow-wrap" aria-label="Conversation workflow">
+          <div class="flow-grid">
+            {% set nodes = [
+              ('received', '01', 'Gmail event', 'Inbound message'),
+              ('deduplicated', '02', 'Reliability', 'Verify + deduplicate'),
+              ('context_loaded', '03', 'Memory', 'Load conversation'),
+              ('evidence_retrieved', '04', 'Knowledge', 'Retrieve evidence'),
+              ('intent_extracted', '05', 'Open model', 'Intent + risk'),
+              ('safety_checked', '06', 'Guardrails', 'Policy + safety'),
+              ('awaiting_approval', '07', 'Human gate', 'Review response'),
+              ('action_executed', '08', 'Tools', 'Approved action'),
+              ('reply_sent', '09', 'Gmail API', 'Reply in thread'),
+              ('evaluated', '10', 'Quality', 'Capture feedback')
+            ] %}
+            {% for key, number, group, title in nodes %}
+              {% set state = completed_steps.get(key) %}
+              <div class="flow-unit">
+                <article class="flow-node {% if state %}is-{{ state }}{% else %}is-pending{% endif %}" data-step="{{ key }}">
+                  <div class="node-top"><span>{{ number }}</span><i></i></div>
+                  <small>{{ group }}</small>
+                  <strong>{{ title }}</strong>
+                  <em>{% if state == 'active' %}Waiting{% elif state == 'warning' %}Review{% elif state == 'failed' %}Failed{% elif state %}Complete{% else %}Pending{% endif %}</em>
+                </article>
+                {% if not loop.last %}<div class="connector"><span>›</span></div>{% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <div class="detail-grid">
+          <section class="panel activity-panel">
+            <div class="panel-title"><div><span class="eyebrow">TRACE</span><h2>Activity</h2></div><span>{{ selected.events|length }} events</span></div>
+            <ol class="timeline">
+              {% for event in selected.events|reverse %}
+                <li class="event event-{{ event.status }}">
+                  <span class="event-marker"></span>
+                  <div>
+                    <div class="event-heading"><strong>{{ event.step.value | replace('_', ' ') | title }}</strong><time>{{ event.created_at.strftime('%H:%M:%S') }}</time></div>
+                    <p>{{ event.detail }}</p>
+                    {% if event.metadata %}<code>{{ event.metadata }}</code>{% endif %}
+                  </div>
+                </li>
+              {% endfor %}
+            </ol>
+          </section>
+
+          <section class="panel inspector-panel">
+            <div class="panel-title"><div><span class="eyebrow">INSPECTOR</span><h2>Current output</h2></div></div>
+            {% if selected.drafts %}
+              {% set draft = selected.drafts[0] %}
+              <div class="signal-row">
+                <span><small>Intent</small><strong>{{ draft.analysis.intent.value | replace('_', ' ') }}</strong></span>
+                <span><small>Confidence</small><strong>{{ '%.0f'|format(draft.analysis.confidence * 100) }}%</strong></span>
+                <span><small>Risk</small><strong class="risk-{{ draft.analysis.risk_level.value }}">{{ draft.analysis.risk_level.value }}</strong></span>
+              </div>
+              <label>Proposed response</label>
+              <textarea id="draft-body" rows="8" {% if draft.status.value != 'awaiting_approval' %}disabled{% endif %}>{{ draft.human_edited_body or draft.body }}</textarea>
+              <div class="action-summary"><small>PROPOSED ACTION</small><strong>{{ draft.action.type.value | replace('_', ' ') }}</strong><p>{{ draft.action.reason }}</p></div>
+              {% if draft.evidence %}
+                <div class="evidence"><small>GROUNDING EVIDENCE</small>{% for item in draft.evidence %}<p><strong>{{ item.title }}</strong> · {{ item.content }}</p>{% endfor %}</div>
+              {% endif %}
+              {% if draft.warnings %}
+                <div class="warnings">{% for warning in draft.warnings %}<p>⚠ {{ warning }}</p>{% endfor %}</div>
+              {% endif %}
+              {% if draft.status.value == 'awaiting_approval' %}
+                <div class="approval-actions" data-draft-id="{{ draft.id }}">
+                  <button class="reject-button" data-action="reject">Reject</button>
+                  <button class="regenerate-button" data-action="regenerate">Regenerate</button>
+                  <button class="approve-button" data-action="approve">Approve &amp; send</button>
+                </div>
+              {% else %}
+                <div class="resolved">Draft status: <strong>{{ draft.status.value | replace('_', ' ') }}</strong></div>
+              {% endif %}
+            {% else %}
+              <div class="empty-panel">No draft is attached to this conversation.</div>
+            {% endif %}
+          </section>
+        </div>
+      {% else %}
+        <section class="welcome">
+          <div class="welcome-icon">⇢</div>
+          <span class="eyebrow">EVENT-DRIVEN BY DESIGN</span>
+          <h1>See an AI email workflow<br>from message to measurable outcome.</h1>
+          <p>The service makes no model calls while idle. Run the local example to create a complete workflow trace without consuming Groq tokens.</p>
+          <button id="welcome-demo-button" class="approve-button">Run zero-token example</button>
+        </section>
+      {% endif %}
+    </main>
+  </div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="{{ url_for('static', path='dashboard.js') }}"></script>
+</body>
+</html>
+

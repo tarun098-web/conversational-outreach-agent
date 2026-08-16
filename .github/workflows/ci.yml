@@ -1,0 +1,23 @@
+name: quality
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: mypy code
+      - run: pytest --cov=outreach_agent --cov-report=term-missing
+      - run: outreach-eval --dataset quality/golden/scenarios.jsonl
+
